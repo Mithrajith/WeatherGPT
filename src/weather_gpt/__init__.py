@@ -1,2 +1,3 @@
-def main() -> None:
-    print("Hello from weather-gpt!")
+from weather_gpt.main import app
+
+__all__ = ["app"]
