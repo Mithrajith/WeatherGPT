@@ -22,9 +22,20 @@ Develop an AI-powered chatbot platform named **WeatherGPT** that integrates mete
 
 ## Expected Solution
 * A mobile-based conversational AI platform.
-* Backend integration with meteorological databases, website, and APIs.●●●●●●●●●●●●
+* Backend integration with meteorological databases, website, and APIs.
 * AI/LLM-based query understanding engine.
 * Scalable architecture supporting real-time data ingestion.
+
+## Frontend PWA & UI Features (Built)
+* **Voice-First Mic & Live Waveform:** 52px large touch target mic button with real-time equalizing wave bar animation (`.wave-bar`).
+* **In-Card Language Toggle:** Seamless `EN` | `हिन्दी` | `தமிழ்` pills inside response cards that update in-place without message duplication.
+* **Crop Persona Switcher:** Instant filter chips for `Paddy (Rice)`, `Cotton`, `Banana`, `Potato`, and `Wheat` using unified Lucide line icons.
+* **Hero 30-Day Climate Anomaly Chart:** SVG data visualization comparing 2026 actual rain vs 10-year historical baseline (+45% anomaly indicator).
+* **7-Day IMD Forecast Visualization:** Per-day cards displaying weather icons, high/low temps, explicit rain probability % (`85%`, `65%`), rain progress bars, and risk severity pills (`SAFE` green, `CAUTION` amber, `ALERT` red).
+* **Glanceable Live Dashboard:** Compact top strip showing Temp (29°C), Rain Today (14mm), Humidity (78%), and Wind (12 km/h).
+* **Emergency Disaster Helpline & SOS 1077:** Direct one-tap phone helpline trigger (`tel:1077`) in header and disaster banner.
+* **Interactive GIS Map Radar:** Leaflet district map overlay displaying weather markers and 45km disaster warning radius circles.
+* **High-Contrast Dark / Light Mode:** Outdoor field mode toggle (`DARK` / `LIGHT`) for visibility under harsh direct sunlight.
 
 ## Suggested Technology Stack
 * Python / FastAPI / Node.js
