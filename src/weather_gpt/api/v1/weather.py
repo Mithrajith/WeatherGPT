@@ -7,6 +7,7 @@ from weather_gpt.db.session import get_db
 from weather_gpt.models.historical_weather import HistoricalWeather
 from weather_gpt.schemas.weather import CurrentWeatherResponse, ForecastResponse, HistoricalWeatherResponse
 from weather_gpt.services.imd_service import imd_client
+from weather_gpt.services.alert_bridge import get_active_alerts, sync_forecast_to_alerts
 
 router = APIRouter(prefix="/weather", tags=["Weather Intelligence"])
 
@@ -17,7 +18,9 @@ async def get_current_weather(
     lon: float = Query(77.2090, description="Longitude")
 ):
     """Retrieve current weather data using the cached IMD wrapper service."""
-    return await imd_client.get_current_weather(location_name=city, lat=lat, lon=lon)
+    data = await imd_client.get_current_weather(location_name=city, lat=lat, lon=lon)
+    data["active_alerts"] = await get_active_alerts(city)
+    return data
 
 @router.get("/forecast", response_model=ForecastResponse)
 async def get_weather_forecast(
@@ -26,8 +29,11 @@ async def get_weather_forecast(
     lon: float = Query(77.2090, description="Longitude"),
     days: int = Query(5, ge=1, le=10, description="Forecast horizon in days")
 ):
-    """Retrieve multi-day forecast using the cached IMD wrapper service."""
-    return await imd_client.get_forecast(location_name=city, lat=lat, lon=lon, days=days)
+    """Retrieve multi-day forecast; severe days are auto-promoted to alerts and broadcast."""
+    data = await imd_client.get_forecast(location_name=city, lat=lat, lon=lon, days=days)
+    await sync_forecast_to_alerts(city, data["forecast"])
+    data["active_alerts"] = await get_active_alerts(city)
+    return data
 
 @router.get("/historical", response_model=List[HistoricalWeatherResponse])
 async def get_historical_records(

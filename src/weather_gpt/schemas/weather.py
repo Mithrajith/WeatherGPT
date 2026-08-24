@@ -2,6 +2,16 @@ from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
+class ActiveAlert(BaseModel):
+    event: str = "weather_alert"
+    alert_id: str
+    district: str
+    severity: str
+    title: str
+    message: str
+    action: str
+    valid_until: datetime
+
 class CurrentWeatherResponse(BaseModel):
     location: str
     latitude: float
@@ -14,6 +24,7 @@ class CurrentWeatherResponse(BaseModel):
     wind_direction: str
     weather_condition: str
     description: str
+    active_alerts: List[ActiveAlert] = []
     source: str = "IMD"
     cached: bool = False
     timestamp: datetime
@@ -31,6 +42,7 @@ class ForecastResponse(BaseModel):
     latitude: float
     longitude: float
     forecast: List[ForecastDay]
+    active_alerts: List[ActiveAlert] = []
     source: str = "IMD"
     cached: bool = False
 

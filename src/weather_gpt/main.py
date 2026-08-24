@@ -6,6 +6,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from weather_gpt.config import settings
 from weather_gpt.db.session import init_db
 from weather_gpt.api.v1.router import api_router
+from src.alerts.database import init_db as init_alerts_db
+from src.alerts.routes import router as alerts_router
 
 # Setup Logging
 logging.basicConfig(
@@ -18,6 +20,7 @@ logger = logging.getLogger("weather_gpt")
 async def lifespan(app: FastAPI):
     logger.info("Initializing WeatherGPT Backend Service...")
     await init_db()
+    init_alerts_db()
     logger.info("Database schemas initialized successfully.")
     yield
     logger.info("Shutting down WeatherGPT Backend Service...")
@@ -43,6 +46,9 @@ app.add_middleware(
 
 # Mount API Routers
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+# Mount Alerts & Advisory Router (root-level paths: /alerts/*, /advisory, /ws/alerts)
+app.include_router(alerts_router)
 
 @app.get("/health", tags=["System"])
 async def health_check():
