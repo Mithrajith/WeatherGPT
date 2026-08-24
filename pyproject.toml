@@ -7,7 +7,17 @@ authors = [
     { name = "Hariharan P R", email = "prhariharan2005@gmail.com" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "fastapi>=0.141.1",
+    "google-genai>=1.2.0",
+    "googletrans==4.0.0rc1",
+    "gtts>=2.5.4",
+    "pydub>=0.25.1",
+    "python-dotenv>=1.2.3",
+    "python-multipart>=0.0.32",
+    "speechrecognition>=3.17.0",
+    "uvicorn>=0.52.4",
+]
 
 [project.scripts]
 weather-gpt = "weather_gpt:main"

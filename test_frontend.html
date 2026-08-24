@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WeatherGPT Multilingual Voice & Text Test</title>
+    <style>
+        body { font-family: system-ui, -apple-system, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; background: #f5f5f5; }
+        .container { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { margin-top: 0; color: #333; }
+        .controls { display: flex; gap: 0.5rem; margin-bottom: 1rem; align-items: center; }
+        .input-group { margin-bottom: 1rem; display: flex; gap: 0.5rem; }
+        input[type="text"] { flex: 1; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; font-size: 1rem; }
+        select { padding: 0.5rem; font-size: 1rem; border-radius: 4px; border: 1px solid #ccc; }
+        button { padding: 0.5rem 1rem; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 1rem; }
+        button:hover { background: #0052a3; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        #recordBtn { background: #dc3545; }
+        #recordBtn.recording { background: #28a745; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
+        
+        .result-box { margin-top: 2rem; padding: 1rem; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; display: none; }
+        .result-item { margin-bottom: 1rem; }
+        .label { font-weight: bold; color: #555; font-size: 0.9rem; text-transform: uppercase; }
+        .content { margin-top: 0.25rem; padding: 0.75rem; background: white; border-radius: 4px; border: 1px solid #eee; }
+        #audio-player { margin-top: 1rem; width: 100%; display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>WeatherGPT Voice & Text Tester</h1>
+        <p>Type a question OR select your language and click "Hold to Record" to speak your question.</p>
+        
+        <div class="controls">
+            <select id="langSelect">
+                <option value="en-US">English</option>
+                <option value="ta-IN">Tamil (தமிழ்)</option>
+                <option value="hi-IN">Hindi (हिंदी)</option>
+                <option value="ml-IN">Malayalam (മലയാളം)</option>
+                <option value="te-IN">Telugu (తెలుగు)</option>
+                <option value="kn-IN">Kannada (ಕನ್ನಡ)</option>
+            </select>
+            <button id="recordBtn" onclick="toggleRecording()">🎤 Start Recording</button>
+        </div>
+
+        <div class="input-group">
+            <input type="text" id="userInput" placeholder="Transcription will appear here or type directly..." />
+            <button id="sendBtn" onclick="sendMessage()">Send to Backend</button>
+        </div>
+
+        <div id="loading" style="display: none; color: #666; font-weight: bold;">Processing...</div>
+
+        <div id="resultBox" class="result-box">
+            <div class="result-item">
+                <div class="label">1. Detected Language</div>
+                <div class="content" id="detectedLang">-</div>
+            </div>
+            <div class="result-item">
+                <div class="label">2. Translated to English (Sent to LLM)</div>
+                <div class="content" id="englishPrompt">-</div>
+            </div>
+            <div class="result-item">
+                <div class="label">3. LLM English Response</div>
+                <div class="content" id="englishResponse">-</div>
+            </div>
+            <div class="result-item">
+                <div class="label">4. Translated Back to User Language</div>
+                <div class="content" id="finalResponse">-</div>
+            </div>
+            
+            <audio id="audio-player" controls></audio>
+        </div>
+    </div>
+
+    <script>
+        let mediaRecorder;
+        let audioChunks = [];
+        let isRecording = false;
+
+        // Initialize recording capabilities
+        async function initAudio() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                
+                mediaRecorder.ondataavailable = (event) => {
+                    audioChunks.push(event.data);
+                };
+                
+                mediaRecorder.onstop = async () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                    audioChunks = []; // reset
+                    await processAudio(audioBlob);
+                };
+            } catch (err) {
+                console.error("Microphone access denied or error:", err);
+                alert("Could not access microphone. Please ensure permissions are granted.");
+            }
+        }
+
+        function toggleRecording() {
+            if (!isRecording) {
+                // Start recording
+                if (!mediaRecorder && navigator.mediaDevices) {
+                    initAudio().then(() => {
+                        if(mediaRecorder) {
+                            isRecording = true;
+                            mediaRecorder.start();
+                            document.getElementById('recordBtn').classList.add('recording');
+                            document.getElementById('recordBtn').innerText = "⏹ Stop Recording";
+                        }
+                    });
+                } else if (mediaRecorder && mediaRecorder.state === "inactive") {
+                    isRecording = true;
+                    mediaRecorder.start();
+                    document.getElementById('recordBtn').classList.add('recording');
+                    document.getElementById('recordBtn').innerText = "⏹ Stop Recording";
+                }
+            } else {
+                // Stop recording
+                if (mediaRecorder && mediaRecorder.state === "recording") {
+                    isRecording = false;
+                    mediaRecorder.stop();
+                    document.getElementById('recordBtn').classList.remove('recording');
+                    document.getElementById('recordBtn').innerText = "🎤 Start Recording";
+                }
+            }
+        }
+
+        async function processAudio(audioBlob) {
+            const loading = document.getElementById('loading');
+            loading.innerText = "Transcribing audio (Speech-to-Text)...";
+            loading.style.display = 'block';
+            
+            try {
+                const lang = document.getElementById('langSelect').value;
+                const formData = new FormData();
+                formData.append('audio_file', audioBlob, 'recording.wav');
+                formData.append('language', lang);
+
+                const response = await fetch('http://localhost:8000/speech-to-text', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                if (data.text && !data.text.includes("Error")) {
+                    document.getElementById('userInput').value = data.text;
+                    // Automatically send to chat
+                    sendMessage();
+                } else {
+                    alert("Could not transcribe audio: " + data.text);
+                    loading.style.display = 'none';
+                }
+            } catch (error) {
+                alert("Error during transcription: " + error.message);
+                loading.style.display = 'none';
+            }
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('userInput').value;
+            if (!input) return;
+
+            const btn = document.getElementById('sendBtn');
+            const loading = document.getElementById('loading');
+            const resultBox = document.getElementById('resultBox');
+            const audioPlayer = document.getElementById('audio-player');
+
+            btn.disabled = true;
+            loading.innerText = "Processing LLM and translating...";
+            loading.style.display = 'block';
+            resultBox.style.display = 'none';
+            audioPlayer.style.display = 'none';
+
+            try {
+                // 1. Send the chat message
+                const formData = new FormData();
+                formData.append('user_text', input);
+
+                const response = await fetch('http://localhost:8000/chat', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                // Populate results
+                document.getElementById('detectedLang').innerText = data.detected_language || 'en';
+                document.getElementById('englishPrompt').innerText = data.english_prompt;
+                document.getElementById('englishResponse').innerText = data.english_response;
+                document.getElementById('finalResponse').innerText = data.final_response;
+                
+                resultBox.style.display = 'block';
+
+                // 2. Generate TTS Audio for the final response
+                if (data.final_response && data.detected_language) {
+                    loading.innerText = "Generating Speech Audio...";
+                    const audioFormData = new FormData();
+                    audioFormData.append('text', data.final_response);
+                    // Mapping standard lang codes for gTTS
+                    let shortLang = data.detected_language;
+                    const audioResponse = await fetch('http://localhost:8000/text-to-speech', {
+                        method: 'POST',
+                        body: audioFormData
+                    });
+
+                    if (audioResponse.ok) {
+                        const blob = await audioResponse.blob();
+                        const audioUrl = URL.createObjectURL(blob);
+                        audioPlayer.src = audioUrl;
+                        audioPlayer.style.display = 'block';
+                        audioPlayer.play(); // Auto-play the response
+                    }
+                }
+
+            } catch (error) {
+                alert('Error connecting to backend: ' + error.message);
+            } finally {
+                btn.disabled = false;
+                loading.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>
