@@ -135,19 +135,68 @@ export async function sendVoiceAudio({ audioBlob, language = 'en', crop = 'paddy
   }
 }
 
-export function subscribeToDisasterAlerts(onAlertReceived) {
-  let ws;
+export function normalizeAlert(raw) {
+  if (!raw) return null;
+  return {
+    id: raw.alert_id || raw.id,
+    district: raw.district,
+    title: raw.title,
+    severity: raw.severity || 'high',
+    advice: raw.action || raw.advice || raw.message || '',
+    validUntil: raw.valid_until || raw.validUntil
+  };
+}
+
+const SEVERITY_RANK = { critical: 3, high: 2, low: 1, informational: 0 };
+
+export function pickMostSevereAlert(alerts) {
+  if (!Array.isArray(alerts) || alerts.length === 0) return null;
+  return [...alerts].sort(
+    (a, b) => (SEVERITY_RANK[b.severity] ?? 0) - (SEVERITY_RANK[a.severity] ?? 0)
+  )[0];
+}
+
+export async function fetchActiveAlerts(district) {
+  if (!district) return [];
   try {
-    ws = new WebSocket(`${WS_BASE_URL}/ws/alerts`);
+    const response = await fetch(
+      `${API_BASE_URL}/api/v1/alerts/active?district=${encodeURIComponent(district)}`
+    );
+    if (!response.ok) throw new Error('Active Alerts API Failed');
+    const data = await response.json();
+    return (Array.isArray(data) ? data : []).map(normalizeAlert).filter(Boolean);
+  } catch (err) {
+    console.warn('Active alerts unavailable, continuing without banner:', err.message);
+    return [];
+  }
+}
+
+export function subscribeToDisasterAlerts(onAlertReceived, district = '') {
+  let ws;
+  let closed = false;
+  const url = district
+    ? `${WS_BASE_URL}/ws/alerts?district=${encodeURIComponent(district.toLowerCase())}`
+    : `${WS_BASE_URL}/ws/alerts`;
+  try {
+    ws = new WebSocket(url);
     ws.onmessage = (event) => {
       try {
-        onAlertReceived(JSON.parse(event.data));
+        const raw = JSON.parse(event.data);
+        if (raw.severity === 'informational') return;
+        const alert = normalizeAlert(raw);
+        if (alert) onAlertReceived(alert);
       } catch (e) {
         console.error('Failed to parse WS alert', e);
       }
     };
+    ws.onclose = () => {
+      if (!closed) setTimeout(() => subscribeToDisasterAlerts(onAlertReceived, district), 5000);
+    };
   } catch (e) {
     console.warn('WebSocket fallback active');
   }
-  return () => { if (ws) ws.close(); };
+  return () => {
+    closed = true;
+    if (ws) ws.close();
+  };
 }

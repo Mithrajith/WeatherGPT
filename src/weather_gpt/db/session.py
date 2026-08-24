@@ -3,9 +3,22 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 from weather_gpt.config import settings
 from weather_gpt.db.base import Base
 
+
+def _to_async_url(url: str) -> str:
+    """Normalize a database URL to an async driver form."""
+    if url.startswith("sqlite+aiosqlite"):
+        return url
+    if url.startswith("sqlite"):
+        return url.replace("sqlite://", "sqlite+aiosqlite://", 1)
+    if url.startswith("postgresql+psycopg"):
+        return url
+    if url.startswith("postgresql"):
+        return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    return url
+
 # Create Async Engine
 engine = create_async_engine(
-    settings.DATABASE_URL,
+    _to_async_url(settings.DATABASE_URL),
     echo=False,
     future=True
 )

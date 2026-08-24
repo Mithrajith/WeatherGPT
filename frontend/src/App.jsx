@@ -6,7 +6,7 @@ import AlertBanner from './components/AlertBanner';
 import ChatContainer from './components/ChatContainer';
 import VoiceInput from './components/VoiceInput';
 import MapModal from './components/MapModal';
-import { sendChatMessage, sendVoiceAudio, subscribeToDisasterAlerts, MOCK_FORECAST_DATA, LIVE_STATS_MOCK, CROP_ADVISORIES, HISTORICAL_CLIMATE_TREND } from './services/api';
+import { sendChatMessage, sendVoiceAudio, subscribeToDisasterAlerts, fetchActiveAlerts, pickMostSevereAlert, MOCK_FORECAST_DATA, LIVE_STATS_MOCK, CROP_ADVISORIES, HISTORICAL_CLIMATE_TREND } from './services/api';
 import './App.css';
 
 const INITIAL_MESSAGES = {
@@ -94,11 +94,22 @@ export default function App() {
   };
 
   useEffect(() => {
+    const district = (liveStats.location || '').split(',')[0].trim();
+
+    // Initial REST fetch: show any alerts already stored for the district
+    if (district) {
+      fetchActiveAlerts(district).then((alerts) => {
+        const topAlert = pickMostSevereAlert(alerts);
+        if (topAlert) setActiveAlert(topAlert);
+      });
+    }
+
+    // Live pushes over WebSocket for new alerts as they are issued
     const unsubscribe = subscribeToDisasterAlerts((alertData) => {
       setActiveAlert(alertData);
-    });
+    }, district);
     return unsubscribe;
-  }, []);
+  }, [liveStats.location]);
 
   const handleSendText = async (queryText) => {
     const userMsg = {
