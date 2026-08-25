@@ -1,134 +1,86 @@
 import React, { useEffect, useRef } from 'react';
-import { Volume2, Bot, User, Sparkles, Info, Globe } from 'lucide-react';
-import AgrometCard from './AgrometCard';
-import ForecastWidget from './ForecastWidget';
-import ClimateTrendChart from './ClimateTrendChart';
+import { Volume2, Bot, User, Wrench, AlertCircle, Loader2, Check } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
-export default function ChatContainer({ messages, isLoading, onPlayAudio, language, onLanguageChange }) {
-  const messagesEndRef = useRef(null);
+const TOOL_LABELS = {
+  get_current_weather: 'Checking current conditions',
+  get_forecast: 'Checking forecast',
+  get_district_warnings: 'Checking official warnings',
+  get_farm_advisory: 'Checking farm advisory',
+  get_historical_trend: 'Checking historical climate data',
+  get_saved_locations: 'Looking up saved locations',
+  save_location: 'Saving location',
+  manage_alert_subscription: 'Updating alert subscription',
+};
+
+function toolLabel(name) {
+  return TOOL_LABELS[name] || name.replace(/_/g, ' ');
+}
+
+function ToolCallPill({ call }) {
+  const isRunning = call.status === 'running';
+  return (
+    <span className={`tool-pill ${isRunning ? 'running' : 'done'} ${call.degraded ? 'degraded' : ''}`}>
+      {isRunning ? <Loader2 size={11} className="spin" /> : <Check size={11} />}
+      {toolLabel(call.tool)}
+    </span>
+  );
+}
+
+export default function ChatContainer({ messages, isLoading, onPlayAudio }) {
+  const endRef = useRef(null);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
 
   return (
     <div className="chat-viewport">
-      <div className="chat-scroll-area">
-        {messages.map((msg, index) => {
-          const isAgent = msg.sender === 'agent';
-          return (
-            <div key={index} className={`chat-row ${isAgent ? 'agent-row' : 'user-row'}`}>
-              <div className="avatar-box">
-                {isAgent ? <Bot size={18} /> : <User size={18} />}
-              </div>
-
-              <div className="chat-bubble-group">
-                {/* User Message Bubble */}
-                {!isAgent && (
-                  <div className="bubble user-bubble">
-                    <p>{msg.text}</p>
-                  </div>
-                )}
-
-                {/* Structured Agent Response Card */}
-                {isAgent && (
-                  <div className="agent-structured-card">
-                    {/* Header with Headline & In-Card Language Switcher */}
-                    <div className="agent-card-header">
-                      <div className="headline-group">
-                        <Sparkles size={14} className="sparkle-icon" />
-                        <span className="agent-headline">{msg.headline || "IMD AGRI-INTELLIGENCE DIRECTIVE"}</span>
-                      </div>
-
-                      {/* In-Card Language Toggle Pill */}
-                      <div className="card-lang-toggle" title="Switch response language">
-                        <Globe size={12} />
-                        <button 
-                          className={`lang-btn ${language === 'en' ? 'active' : ''}`}
-                          onClick={() => onLanguageChange('en')}
-                        >
-                          EN
-                        </button>
-                        <button 
-                          className={`lang-btn ${language === 'hi' ? 'active' : ''}`}
-                          onClick={() => onLanguageChange('hi')}
-                        >
-                          हिन्दी
-                        </button>
-                        <button 
-                          className={`lang-btn ${language === 'ta' ? 'active' : ''}`}
-                          onClick={() => onLanguageChange('ta')}
-                        >
-                          தமிழ்
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Summary Text Body */}
-                    <div className="agent-card-body">
-                      <p className="summary-text">{msg.text || msg.summary}</p>
-
-                      {/* One-Line WHY Callout */}
-                      {msg.why && (
-                        <div className="why-callout-inline">
-                          <Info size={14} className="callout-icon" />
-                          <span><strong>Meteorological Cause:</strong> {msg.why}</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Audio Play Action Bar */}
-                    <div className="agent-card-actions">
-                      <button 
-                        className="btn-tts-listen"
-                        onClick={() => onPlayAudio(msg.text || msg.summary, language)}
-                        title="Listen audio in selected Indian language"
-                      >
-                        <Volume2 size={15} />
-                        <span>Listen Voice Audio</span>
-                      </button>
-                      <span className="msg-time">{msg.time || 'Just now'}</span>
-                    </div>
-
-                    {/* Structured Agromet Advisory Card */}
-                    {msg.agromet && (
-                      <AgrometCard agromet={msg.agromet} />
-                    )}
-
-                    {/* 30-Day Climate Trend Mini Chart (Hero Visualization) */}
-                    {msg.trend && (
-                      <ClimateTrendChart trend={msg.trend} />
-                    )}
-
-                    {/* 7-Day Forecast Visualization */}
-                    {msg.forecast && (
-                      <ForecastWidget forecast={msg.forecast} />
-                    )}
-                  </div>
-                )}
-              </div>
+      <div className="chat-scroll">
+        {messages.map((msg, i) => (
+          <div key={i} className={`chat-row ${msg.sender === 'agent' ? 'from-agent' : 'from-user'}`}>
+            <div className="chat-avatar">
+              {msg.sender === 'agent' ? <Bot size={16} /> : <User size={16} />}
             </div>
-          );
-        })}
 
-        {/* Loading / Agent Thinking State */}
-        {isLoading && (
-          <div className="chat-row agent-row loading-row">
-            <div className="avatar-box">
-              <Bot size={18} />
-            </div>
-            <div className="agent-structured-card loading-card">
-              <div className="pulse-loader">
-                <span></span>
-                <span></span>
-                <span></span>
-              </div>
-              <span className="loading-txt">Querying IMD GFS/WRF model grids...</span>
+            <div className="chat-bubble">
+              {msg.toolCalls?.length > 0 && (
+                <div className="tool-pill-row">
+                  {msg.toolCalls.map((call, j) => <ToolCallPill key={j} call={call} />)}
+                </div>
+              )}
+
+              {msg.text && (
+                <div className="chat-text markdown-body">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
+                  {msg.streaming && <span className="stream-cursor" />}
+                </div>
+              )}
+
+              {!msg.text && msg.streaming && !msg.toolCalls?.length && (
+                <div className="typing-dots"><span /><span /><span /></div>
+              )}
+
+              {msg.sender === 'agent' && !msg.error && !msg.streaming && msg.text && (
+                <div className="chat-footer">
+                  {msg.degraded && (
+                    <span className="chat-tag warn" title="Answered using the Open-Meteo fallback, not an official IMD source">
+                      <AlertCircle size={11} /> unofficial source
+                    </span>
+                  )}
+                  <button className="chat-listen-btn" onClick={() => onPlayAudio(msg.text, msg.language)} title="Listen">
+                    <Volume2 size={13} />
+                  </button>
+                  <span className="chat-time">{msg.time}</span>
+                </div>
+              )}
+              {msg.sender === 'user' && <span className="chat-time">{msg.time}</span>}
             </div>
           </div>
-        )}
+        ))}
 
-        <div ref={messagesEndRef} />
+        <div ref={endRef} />
       </div>
     </div>
   );

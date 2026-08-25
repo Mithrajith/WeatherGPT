@@ -51,17 +51,32 @@ def make_request(method: str, path: str, json_data: dict = None):
             return client_runner.post(path, json=json_data)
 
 # ==========================================
-# STEP 1: Fetch mock data warning payloads
+# STEP 1: Build local warning payloads for the test cases
 # ==========================================
-print("\n[1] Fetching mock warning payloads from metadata API...")
-try:
-    response = make_request("GET", "/alerts/mock-payloads")
-    assert response.status_code == 200, f"Failed: {response.text}"
-    mock_payloads = response.json()
-    print("✓ Successfully retrieved mock warning payloads.")
-except Exception as e:
-    print(f"[E] Error fetching payloads: {e}")
-    sys.exit(1)
+print("\n[1] Building local warning payloads for test cases...")
+now = datetime.now(timezone.utc)
+mock_payloads = {
+    "1_no_warning": {"search_district": "Bangalore"},
+    "2_yellow_warning": {
+        "district": "Coimbatore", "warning_type": "high_winds", "severity": "yellow",
+        "description": "Moderate high winds expected in Coimbatore.",
+        "valid_from": now.isoformat(), "valid_until": now.isoformat(),
+        "external_warning_id": "LOCAL-YELLOW",
+    },
+    "3_orange_warning": {
+        "district": "Coimbatore", "warning_type": "heavy_rain", "severity": "orange",
+        "description": "Heavy rainfall is expected in Coimbatore.",
+        "valid_from": now.isoformat(), "valid_until": now.isoformat(),
+        "external_warning_id": "LOCAL-ORANGE",
+    },
+    "4_red_warning": {
+        "district": "Coimbatore", "warning_type": "cyclone", "severity": "red",
+        "description": "Severe cyclone warning for Coimbatore.",
+        "valid_from": now.isoformat(), "valid_until": now.isoformat(),
+        "external_warning_id": "LOCAL-RED",
+    },
+}
+print("✓ Built local warning payloads.")
 
 # ==========================================
 # STEP 2: Process mock warnings

@@ -1,137 +1,149 @@
-// WeatherGPT Agri-Intelligence API Service Layer
+// WeatherGPT API service layer — talks to the FastAPI gateway (src/gateway/main.py).
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL || 'ws://localhost:8000';
 
-export const LIVE_STATS_MOCK = {
-  location: "Coimbatore, Tamil Nadu",
-  districtCode: "CBE-04",
-  tempCurrent: 29,
-  tempMax: 31,
-  tempMin: 23,
-  humidity: 78,
-  rainTodayMm: 14,
-  windSpeedKmh: 12,
-  windDirection: "SW",
-  overallSeverity: "caution"
-};
-
-export const MOCK_FORECAST_DATA = [
-  { day: 'Today', tempMax: 31, tempMin: 23, rainProb: 20, rainMm: 2, condition: 'Partly Cloudy', icon: 'cloud-sun', severity: 'safe' },
-  { day: 'Tomorrow', tempMax: 29, tempMin: 22, rainProb: 85, rainMm: 35, condition: 'Heavy Downpour', icon: 'cloud-rain', severity: 'alert' },
-  { day: 'Wed', tempMax: 28, tempMin: 22, rainProb: 65, rainMm: 18, condition: 'Thunderstorm', icon: 'thunderstorm', severity: 'caution' },
-  { day: 'Thu', tempMax: 30, tempMin: 23, rainProb: 35, rainMm: 5, condition: 'Light Shower', icon: 'cloud-drizzle', severity: 'safe' },
-  { day: 'Fri', tempMax: 32, tempMin: 24, rainProb: 10, rainMm: 0, condition: 'Sunny & Clear', icon: 'sun', severity: 'safe' },
-];
-
-export const HISTORICAL_CLIMATE_TREND = [
-  { period: 'W1 (Aug 1-7)', actualRain: 12, normalRain: 10 },
-  { period: 'W2 (Aug 8-14)', actualRain: 28, normalRain: 15 },
-  { period: 'W3 (Aug 15-21)', actualRain: 45, normalRain: 20 },
-  { period: 'W4 (Aug 22-28)', actualRain: 38, normalRain: 18 },
-];
-
-export const CROP_ADVISORIES = {
-  paddy: {
-    cropId: 'paddy',
-    cropName: '🌾 Paddy (Rice)',
-    urgency: 'HIGH_ALERT',
-    why: '35mm heavy rain predicted in next 24 hours cause field submergence.',
-    action: 'Clear field drainage bunds immediately to prevent root rot. Suspend urea application.'
-  },
-  cotton: {
-    cropId: 'cotton',
-    cropName: '🌱 Cotton',
-    urgency: 'CAUTION',
-    why: 'High humidity (78%) and wet leaves encourage bollworm infestation.',
-    action: 'Inspect leaf undersides for pink bollworm. Spray neem oil once rain subsides.'
-  },
-  banana: {
-    cropId: 'banana',
-    cropName: '🍌 Banana',
-    urgency: 'HIGH_ALERT',
-    why: 'Wind gusts up to 25 km/h with heavy downpour may cause crop lodging.',
-    action: 'Provide bamboo propping support to fruiting banana trees immediately.'
-  },
-  potato: {
-    cropId: 'potato',
-    cropName: '🥔 Potato',
-    urgency: 'CAUTION',
-    why: 'Excess moisture increases late blight fungal disease risk.',
-    action: 'Maintain strict field drainage and apply protective copper fungicide post-rain.'
-  },
-  wheat: {
-    cropId: 'wheat',
-    cropName: '🌾 Wheat',
-    urgency: 'SAFE',
-    why: 'Current soil moisture levels optimal for early tillering phase.',
-    action: 'Proceed with normal field cultivation and monitor weekly rain forecast.'
-  }
-};
-
-const MOCK_RESPONSES = {
-  en: {
-    coimbatore: {
-      headline: "IMD District Advisory: Coimbatore, TN",
-      summary: "Heavy rainfall (35 mm) forecast for tomorrow with convective gusty winds.",
-      why: "Active monsoon trough shifting across Western Ghats releasing 35mm rain.",
-    }
-  }
-};
-
-export async function sendChatMessage({ message, language = 'en', crop = 'paddy' }) {
+export async function checkBackendHealth() {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, language, crop }),
-    });
-    if (!response.ok) throw new Error('API Request Failed');
-    return await response.json();
-  } catch (err) {
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    const selectedAgromet = CROP_ADVISORIES[crop] || CROP_ADVISORIES.paddy;
-
-    return {
-      headline: `IMD District Advisory (${selectedAgromet.cropName})`,
-      summary: `Heavy rainfall (35 mm) expected tomorrow in Coimbatore region. Tailored advisory for ${selectedAgromet.cropName} field management.`,
-      why: "Monsoon trough shifting south releasing 35mm precipitation.",
-      agromet: selectedAgromet,
-      forecast: MOCK_FORECAST_DATA,
-      stats: LIVE_STATS_MOCK,
-      trend: HISTORICAL_CLIMATE_TREND
-    };
+    const response = await fetch(`${API_BASE_URL}/health`, { signal: AbortSignal.timeout(3000) });
+    return response.ok;
+  } catch {
+    return false;
   }
 }
 
-export async function sendVoiceAudio({ audioBlob, language = 'en', crop = 'paddy' }) {
+// Matches gateway POST /api/chat -> {headline, summary, session_id, language, tools_used, degraded}
+export async function sendChatMessage({ message, language = 'auto', crop = 'other', sessionId }) {
+  const response = await fetch(`${API_BASE_URL}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, language, crop, session_id: sessionId }),
+  });
+  if (!response.ok) throw new Error(`Chat request failed (${response.status})`);
+  return await response.json();
+}
+
+// Matches gateway POST /api/chat/stream (Server-Sent Events). Calls `onEvent`
+// once per event: {type:'tool_start'|'tool_end'|'token'|'final'|'error', ...}.
+// Returns a function that aborts the stream early (e.g. on unmount).
+export function streamChatMessage({ message, language = 'auto', crop = 'other', sessionId }, onEvent) {
+  const controller = new AbortController();
+
+  (async () => {
+    let response;
+    try {
+      response = await fetch(`${API_BASE_URL}/api/chat/stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, language, crop, session_id: sessionId }),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      if (err.name !== 'AbortError') onEvent({ type: 'error', message: err.message });
+      return;
+    }
+
+    if (!response.ok || !response.body) {
+      onEvent({ type: 'error', message: `Stream request failed (${response.status})` });
+      return;
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        // SSE frames are separated by a blank line; each frame's payload is
+        // one or more "data: <json>" lines (we only ever send one per frame).
+        const frames = buffer.split('\n\n');
+        buffer = frames.pop(); // last chunk may be incomplete, keep it buffered
+
+        for (const frame of frames) {
+          const line = frame.split('\n').find((l) => l.startsWith('data: '));
+          if (!line) continue;
+          try {
+            onEvent(JSON.parse(line.slice(6)));
+          } catch (e) {
+            console.error('Failed to parse SSE frame', e, line);
+          }
+        }
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') onEvent({ type: 'error', message: err.message });
+    }
+  })();
+
+  return () => controller.abort();
+}
+
+// Matches gateway POST /api/chat/voice (multipart: file, language, crop, session_id)
+export async function sendVoiceAudio({ audioBlob, language = 'auto', crop = 'other', sessionId }) {
+  const formData = new FormData();
+  formData.append('file', audioBlob, 'voice.webm');
+  formData.append('language', language);
+  formData.append('crop', crop);
+  if (sessionId) formData.append('session_id', sessionId);
+
+  const response = await fetch(`${API_BASE_URL}/api/chat/voice`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!response.ok) throw new Error(`Voice request failed (${response.status})`);
+  return await response.json();
+}
+
+// Matches gateway POST /api/tts -> audio/mpeg bytes. Returns a blob: URL the
+// caller can hand to an <audio> element, or null if TTS is unavailable (the
+// caller should fall back to window.speechSynthesis in that case).
+export async function fetchTTS({ text, language = 'en' }) {
+  if (!text) return null;
   try {
-    const formData = new FormData();
-    if (audioBlob) formData.append('file', audioBlob, 'voice.webm');
-    formData.append('language', language);
-    formData.append('crop', crop);
-
-    const response = await fetch(`${API_BASE_URL}/api/chat/voice`, {
+    const response = await fetch(`${API_BASE_URL}/api/tts`, {
       method: 'POST',
-      body: formData,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, language }),
+      signal: AbortSignal.timeout(10000),
     });
-    if (!response.ok) throw new Error('Voice API Failed');
-    return await response.json();
+    if (!response.ok) return null;
+    const blob = await response.blob();
+    return URL.createObjectURL(blob);
+  } catch {
+    return null;
+  }
+}
+
+// Matches the weather_backend app mounted at /backend (gateway/main.py).
+export async function fetchCurrentWeather(location) {
+  const response = await fetch(
+    `${API_BASE_URL}/backend/api/v1/weather/current?location=${encodeURIComponent(location)}`
+  );
+  if (!response.ok) throw new Error(`Current weather request failed (${response.status})`);
+  return await response.json();
+}
+
+export async function fetchForecast(location, days = 5) {
+  const response = await fetch(
+    `${API_BASE_URL}/backend/api/v1/weather/forecast?location=${encodeURIComponent(location)}&days=${days}`
+  );
+  if (!response.ok) throw new Error(`Forecast request failed (${response.status})`);
+  return await response.json();
+}
+
+// Matches gateway GET /alerts/recent?limit= — non-expired alerts across all districts.
+export async function fetchRecentAlerts(limit = 50) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/alerts/recent?limit=${limit}`);
+    if (!response.ok) throw new Error('recent alerts request failed');
+    const data = await response.json();
+    return (Array.isArray(data) ? data : []).map(normalizeAlert).filter(Boolean);
   } catch (err) {
-    await new Promise((resolve) => setTimeout(resolve, 800));
-
-    const transcript = language === 'hi' 
-      ? "कोयंबटूर वर्षा पूर्वानुमान और फसल सलाह" 
-      : language === 'ta' 
-      ? "கோயம்புத்தூர் மழை மற்றும் பயிர் ஆலோசனை" 
-      : `Rain forecast & ${CROP_ADVISORIES[crop]?.cropName || 'Paddy'} advisory for Coimbatore`;
-
-    const chatResult = await sendChatMessage({ message: transcript, language, crop });
-    return {
-      userTranscript: transcript,
-      ...chatResult
-    };
+    console.warn('Recent alerts unavailable:', err.message);
+    return [];
   }
 }
 
@@ -143,7 +155,7 @@ export function normalizeAlert(raw) {
     title: raw.title,
     severity: raw.severity || 'high',
     advice: raw.action || raw.advice || raw.message || '',
-    validUntil: raw.valid_until || raw.validUntil
+    validUntil: raw.valid_until || raw.validUntil,
   };
 }
 
@@ -156,21 +168,23 @@ export function pickMostSevereAlert(alerts) {
   )[0];
 }
 
+// Matches gateway GET /api/v1/alerts/active?district=
 export async function fetchActiveAlerts(district) {
   if (!district) return [];
   try {
     const response = await fetch(
       `${API_BASE_URL}/api/v1/alerts/active?district=${encodeURIComponent(district)}`
     );
-    if (!response.ok) throw new Error('Active Alerts API Failed');
+    if (!response.ok) throw new Error('active alerts request failed');
     const data = await response.json();
     return (Array.isArray(data) ? data : []).map(normalizeAlert).filter(Boolean);
   } catch (err) {
-    console.warn('Active alerts unavailable, continuing without banner:', err.message);
+    console.warn('Active alerts unavailable:', err.message);
     return [];
   }
 }
 
+// Matches gateway WS /ws/alerts?district=
 export function subscribeToDisasterAlerts(onAlertReceived, district = '') {
   let ws;
   let closed = false;
@@ -192,8 +206,8 @@ export function subscribeToDisasterAlerts(onAlertReceived, district = '') {
     ws.onclose = () => {
       if (!closed) setTimeout(() => subscribeToDisasterAlerts(onAlertReceived, district), 5000);
     };
-  } catch (e) {
-    console.warn('WebSocket fallback active');
+  } catch {
+    console.warn('WebSocket unavailable, live alert push disabled');
   }
   return () => {
     closed = true;
