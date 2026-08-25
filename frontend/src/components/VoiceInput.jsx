@@ -1,19 +1,20 @@
 import React, { useState, useRef } from 'react';
-import { Mic, Send, Square, Sparkles } from 'lucide-react';
+import { Mic, Send, Square } from 'lucide-react';
+
+const PLACEHOLDER = {
+  en: 'Ask about weather, warnings, or farming advice…',
+  hi: 'मौसम, चेतावनी या खेती सलाह के बारे में पूछें…',
+  ta: 'வானிலை, எச்சரிக்கை அல்லது வேளாண் ஆலோசனை பற்றி கேளுங்கள்…',
+  te: 'వాతావరణం, హెచ్చరికలు లేదా వ్యవసాయ సలహా గురించి అడగండి…',
+  kn: 'ಹವಾಮಾನ, ಎಚ್ಚರಿಕೆಗಳು ಅಥವಾ ಕೃಷಿ ಸಲಹೆ ಬಗ್ಗೆ ಕೇಳಿ…',
+  bn: 'আবহাওয়া, সতর্কতা বা কৃষি পরামর্শ সম্পর্কে জিজ্ঞাসা করুন…',
+};
 
 export default function VoiceInput({ onSendText, onSendVoice, isLoading, language }) {
   const [text, setText] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
-
-  const QUICK_PROMPTS = {
-    en: ["Coimbatore Rain Tomorrow?", "Paddy Field Advisory", "Pest Risk Warning"],
-    hi: ["कोयंबटूर में कल बारिश?", "धान फसल सलाह", "कीट जोखिम चेतावनी"],
-    ta: ["நாளை கோயம்புத்தூர் மழை?", "நெல் பயிர் ஆலோசனை", "பூச்சி தாக்குதல் எச்சரிக்கை"]
-  };
-
-  const currentPrompts = QUICK_PROMPTS[language] || QUICK_PROMPTS.en;
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -31,22 +32,15 @@ export default function VoiceInput({ onSendText, onSendVoice, isLoading, languag
       mediaRecorderRef.current.ondataavailable = (event) => {
         if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
-
       mediaRecorderRef.current.onstop = () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         onSendVoice(audioBlob);
         stream.getTracks().forEach((track) => track.stop());
       };
-
       mediaRecorderRef.current.start();
       setIsRecording(true);
     } catch (err) {
-      console.warn('Mic fallback engaged:', err);
-      setIsRecording(true);
-      setTimeout(() => {
-        setIsRecording(false);
-        onSendVoice(null);
-      }, 2500);
+      console.warn('Microphone unavailable:', err.message);
     }
   };
 
@@ -58,80 +52,44 @@ export default function VoiceInput({ onSendText, onSendVoice, isLoading, languag
   };
 
   return (
-    <div className="rural-field-input-bar">
-      {/* Quick Prompt Chips */}
-      <div className="quick-prompt-row">
-        <Sparkles size={13} className="sparkle-gold" />
-        {currentPrompts.map((prompt, i) => (
-          <button 
-            key={i} 
-            className="chip-prompt-btn"
-            onClick={() => onSendText(prompt)}
-            disabled={isLoading || isRecording}
-          >
-            {prompt}
-          </button>
-        ))}
-      </div>
-
-      {/* Live Voice Recording Waveform Overlay */}
+    <div className="input-bar">
       {isRecording && (
-        <div className="recording-waveform-banner">
-          <span className="rec-live-dot"></span>
-          <span className="rec-text">Listening in native language...</span>
-          <div className="waveform-bars flex-row">
-            <span className="wave-bar b1"></span>
-            <span className="wave-bar b2"></span>
-            <span className="wave-bar b3"></span>
-            <span className="wave-bar b4"></span>
-            <span className="wave-bar b5"></span>
-            <span className="wave-bar b6"></span>
-          </div>
-          <button className="btn-stop-rec" onClick={stopRecording}>
-            <Square size={14} /> Stop
+        <div className="recording-indicator">
+          <span className="rec-dot" />
+          <span>Listening…</span>
+          <button className="stop-rec-btn" onClick={stopRecording}>
+            <Square size={12} /> Stop
           </button>
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="input-field-group">
-        {/* Extra Large 52px Glowing Mic Button */}
+      <form onSubmit={handleSubmit} className="input-form">
         <button
           type="button"
-          className={`btn-large-mic ${isRecording ? 'active-rec' : ''}`}
+          className={`mic-btn ${isRecording ? 'recording' : ''}`}
           onClick={isRecording ? stopRecording : startRecording}
           disabled={isLoading}
-          title={isRecording ? "Stop recording" : "Speak in local language"}
+          title={isRecording ? 'Stop recording' : 'Speak your question'}
         >
-          {isRecording ? <Square size={22} /> : <Mic size={24} />}
-          {isRecording && <div className="pulse-aura"></div>}
+          {isRecording ? <Square size={18} /> : <Mic size={18} />}
         </button>
 
-        {/* High-Contrast Input Field */}
         <input
           type="text"
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder={
-            isRecording
-              ? "Listening to voice..."
-              : language === 'hi'
-              ? "मौसम या फसल सुरक्षा के बारे में पूछें..."
-              : language === 'ta'
-              ? "வானிலை அல்லது பயிர் பற்றி கேட்கவும்..."
-              : "Ask weather or crop advisory in any Indian language..."
-          }
-          className="field-text-input"
+          placeholder={isRecording ? 'Listening…' : (PLACEHOLDER[language] || PLACEHOLDER.en)}
+          className="text-input"
           disabled={isLoading || isRecording}
         />
 
-        {/* High-Contrast Send Button */}
         <button
           type="submit"
-          className="btn-field-send"
+          className="send-btn"
           disabled={!text.trim() || isLoading || isRecording}
-          title="Send query"
+          title="Send"
         >
-          <Send size={20} />
+          <Send size={18} />
         </button>
       </form>
     </div>

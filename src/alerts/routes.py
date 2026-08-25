@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
@@ -10,81 +10,38 @@ from src.alerts.websocket_manager import websocket_manager
 
 router = APIRouter()
 
-@router.get("/alerts/mock-payloads")
-def get_mock_payloads():
+@router.get("/alerts/recent", response_model=List[AlertResponse])
+def get_recent_alerts(limit: int = 50, db: Session = Depends(get_db)):
     """
-    Retrieve raw JSON warning payloads representing various test cases (e.g. Yellow warning, Red warning, Expired, Invalid)
-    for testing in Swagger UI.
+    Retrieve non-expired alerts across all districts, most urgent first, for
+    the Alerts page. Ordered by severity (red > orange > yellow) then by how
+    soon the warning expires.
     """
-    now = datetime.now(timezone.utc)
-    return {
-        "1_no_warning": {
-            "description": "District has no alerts",
-            "search_district": "Bangalore"
-        },
-        "2_yellow_warning": {
-            "district": "Coimbatore",
-            "warning_type": "high_winds",
-            "severity": "yellow",
-            "description": "Moderate high winds expected in Coimbatore.",
-            "valid_from": (now - timedelta(hours=1)).isoformat(),
-            "valid_until": (now + timedelta(hours=23)).isoformat(),
-            "external_warning_id": "MOCK-INPUT-YELLOW"
-        },
-        "3_orange_warning": {
-            "district": "Coimbatore",
-            "warning_type": "heavy_rain",
-            "severity": "orange",
-            "description": "Heavy rainfall is expected in Coimbatore.",
-            "valid_from": (now - timedelta(hours=2)).isoformat(),
-            "valid_until": (now + timedelta(hours=22)).isoformat(),
-            "external_warning_id": "MOCK-INPUT-ORANGE"
-        },
-        "4_red_warning": {
-            "district": "Coimbatore",
-            "warning_type": "cyclone",
-            "severity": "red",
-            "description": "Severe cyclone warning for Coimbatore.",
-            "valid_from": (now - timedelta(hours=3)).isoformat(),
-            "valid_until": (now + timedelta(hours=21)).isoformat(),
-            "external_warning_id": "MOCK-INPUT-RED"
-        },
-        "5_duplicate_warning": {
-            "district": "Coimbatore",
-            "warning_type": "heavy_rain",
-            "severity": "orange",
-            "description": "Heavy rainfall is expected in Coimbatore.",
-            "valid_from": (now - timedelta(hours=2)).isoformat(),
-            "valid_until": (now + timedelta(hours=22)).isoformat(),
-            "external_warning_id": "MOCK-INPUT-ORANGE"
-        },
-        "6_different_district": {
-            "district": "Chennai",
-            "warning_type": "heavy_rain",
-            "severity": "yellow",
-            "description": "Light rain expected in Chennai.",
-            "valid_from": (now - timedelta(hours=1)).isoformat(),
-            "valid_until": (now + timedelta(hours=12)).isoformat(),
-            "external_warning_id": "MOCK-INPUT-CHENNAI"
-        },
-        "7_expired_warning": {
-            "district": "Coimbatore",
-            "warning_type": "heatwave",
-            "severity": "orange",
-            "description": "Extreme heat in Coimbatore.",
-            "valid_from": (now - timedelta(days=2)).isoformat(),
-            "valid_until": (now - timedelta(days=1)).isoformat(),
-            "external_warning_id": "MOCK-INPUT-EXPIRED"
-        },
-        "8_invalid_warning": {
-            "district": "",
-            "warning_type": "heavy_rain",
-            "severity": "invalid_severity_level",
-            "description": "Invalid format warning",
-            "valid_from": "invalid_date",
-            "valid_until": "invalid_date"
-        }
-    }
+    severity_rank = {"red": 0, "orange": 1, "yellow": 2}
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    from src.alerts.database import Alert as AlertModel
+
+    rows = (
+        db.query(AlertModel)
+        .filter(AlertModel.valid_until > now)
+        .order_by(AlertModel.valid_until.asc())
+        .limit(max(1, min(limit, 200)))
+        .all()
+    )
+    rows.sort(key=lambda a: severity_rank.get((a.severity or "").lower(), 3))
+    return [
+        AlertResponse(
+            event="weather_alert",
+            alert_id=a.external_warning_id,
+            district=a.district,
+            severity=a.severity,
+            title=a.title,
+            message=a.message,
+            action=a.action,
+            valid_until=a.valid_until,
+        )
+        for a in rows
+    ]
 
 @router.get("/alerts/{district}", response_model=List[AlertResponse])
 def get_alerts_by_district(district: str, db: Session = Depends(get_db)):

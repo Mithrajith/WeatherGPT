@@ -110,12 +110,13 @@ async def test_process_invalid_warning_rejected():
     assert response.status_code == 400
 
 @pytest.mark.asyncio
-async def test_get_mock_warning_payloads():
+async def test_get_recent_alerts():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        response = await ac.get("/alerts/mock-payloads")
+        await ac.post("/alerts/process", json=_warning_payload(severity="orange"))
+        response = await ac.get("/alerts/recent")
     assert response.status_code == 200
     data = response.json()
-    assert "2_yellow_warning" in data
+    assert isinstance(data, list)
 
 @pytest.mark.asyncio
 async def test_crop_advisory():
